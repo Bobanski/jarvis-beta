@@ -721,6 +721,49 @@ async def run_smart_control_from_text(text):
         return JSONResponse(content={"error": str(e)}, status_code=500)
 
 
+@app.post("/execute")
+async def execute_command(request: Request):
+    """
+    Combined endpoint that parses natural language and executes the command.
+    This endpoint first parses the text to structured data, then calls the appropriate
+    handler to execute the command.
+    """
+    try:
+        data = await request.json()
+        text = data.get("text")
+        if not text:
+            return JSONResponse(content={"error": "Missing 'text' field"}, status_code=400)
+        
+        # First parse the text
+        parse_response = await parse(Request(scope={"type": "http"}, receive=request.receive))
+        
+        # Check if parsing was successful
+        if isinstance(parse_response, JSONResponse):
+            if parse_response.status_code != 200:
+                return parse_response
+            
+            # Extract the parsed data
+            parsed_data = parse_response.body
+            if isinstance(parsed_data, bytes):
+                parsed_data = json.loads(parsed_data.decode())
+            
+            # Now execute the command based on the intent
+            intent = parsed_data.get("intent")
+            if intent == "set_color":
+                return await handle_set_color(parsed_data)
+            elif intent == "trigger_scene":
+                return handle_trigger_scene(parsed_data)
+            elif intent == "trigger_ifttt":
+                return await handle_ifttt_trigger(parsed_data)
+            elif intent == "lg_tv_control":
+                return await handle_lg_tv_control(parsed_data)
+            else:
+                return JSONResponse(content={"error": "Unknown intent", "parsed_data": parsed_data}, status_code=400)
+        else:
+            return JSONResponse(content={"error": "Failed to parse command"}, status_code=500)
+    except Exception as e:
+        return JSONResponse(content={"error": f"Error executing command: {str(e)}"}, status_code=500)
+
 if __name__ == "__main__":
     import asyncio
     
