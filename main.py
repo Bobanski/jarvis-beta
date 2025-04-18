@@ -486,6 +486,7 @@ async def parse(request: Request):
         system_prompt = (
             "You are a smart home controller. "
             "Interpret the user's natural language request and extract structured information. "
+            "Return the output as a JSON object. "
             "Determine if the request matches a known lighting scene OR describes a color. "
             "If it matches a scene name, set intent to 'trigger_scene' "
             "and include 'scene_name' and 'location' fields. "
