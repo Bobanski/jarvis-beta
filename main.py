@@ -506,6 +506,9 @@ async def parse(request: Request):
             ],
             temperature=1
         )
+        # Log full raw response for debugging
+        logging.info(f"Full OpenAI response: {response}")
+
         content = response.choices[0].message.content.strip()
         logging.info(f"OpenAI response content: {content}")
 
