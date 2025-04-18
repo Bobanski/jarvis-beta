@@ -485,7 +485,7 @@ async def parse(request: Request):
         client = OpenAI(api_key=OPENAI_API_KEY)
         system_prompt = (
             "You are a smart home controller. "
-            "Interpret the user's natural language request and return ONLY a valid JSON object. "
+            "Interpret the user's natural language request and extract structured information. "
             "Determine if the request matches a known lighting scene OR describes a color. "
             "If it matches a scene name, set intent to 'trigger_scene' "
             "and include 'scene_name' and 'location' fields. "
@@ -493,33 +493,108 @@ async def parse(request: Request):
             f"location must be one of: {location_options}. "
             "If it describes a color (e.g., 'warm orange', 'deep blue'), set intent to 'set_color' and include "
             "'location', 'hue' (0-360), 'sat' (0-254), and 'bri' (0-254) fields. "
-            "Always normalize scene names to lowercase. "
-            "Do not include any explanation or extra text, only return valid JSON."
+            "Always normalize scene names to lowercase."
         )
         user_prompt = f"Request: {text}"
 
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt}
-            ],
-            temperature=1
+        # Configure retry logic for better reliability in cloud environments
+        max_retries = 2
+        retry_count = 0
+        last_exception = None
+        
+        while retry_count <= max_retries:
+            try:
+                # Use response_format to ensure we get valid JSON
+                # This is more reliable than parsing from content directly
+                response = client.chat.completions.create(
+                    model="o4-mini-2025-04-16",  # Pinned to specific snapshot for consistency
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt}
+                    ],
+                    response_format={"type": "json_object"},  # Explicitly request JSON output
+                    temperature=0.7,  # Lower temperature for more predictable responses
+                    timeout=15  # Explicit timeout for cloud environments
+                )
+                
+                # Log full raw response for debugging
+                logging.info(f"Full OpenAI response: {response}")
+                
+                # Check if we have a valid response with content
+                if not response.choices or len(response.choices) == 0:
+                    error_msg = "OpenAI API returned empty choices"
+                    logging.error(error_msg)
+                    return JSONResponse(content={"error": error_msg, "raw_response": str(response)}, status_code=500)
+                
+                # Check if message exists and has content
+                message = response.choices[0].message
+                if not hasattr(message, 'content') or message.content is None:
+                    error_msg = "OpenAI API response missing content field"
+                    logging.error(error_msg)
+                    return JSONResponse(content={"error": error_msg, "raw_response": str(response)}, status_code=500)
+                
+                content = message.content.strip()
+                logging.info(f"OpenAI response content: {content}")
+                
+                if not content:
+                    error_msg = "OpenAI API returned empty content"
+                    logging.error(error_msg)
+                    return JSONResponse(content={"error": error_msg, "raw_response": str(response)}, status_code=500)
+                
+                # Validate JSON response - this should be more reliable now with response_format
+                try:
+                    parsed = json.loads(content)
+                    # Success - return the parsed data
+                    return JSONResponse(content=parsed)
+                except json.JSONDecodeError as json_err:
+                    # Still failed to parse JSON despite response_format
+                    error_msg = f"Failed to parse JSON from OpenAI response: {str(json_err)}"
+                    logging.error(error_msg)
+                    
+                    # Final attempt - do a defensive JSON string fix
+                    try:
+                        # Try to fix common JSON issues
+                        clean_content = content.replace("'", '"')  # Replace single quotes with double quotes
+                        clean_content = clean_content.strip()
+                        
+                        # Ensure it starts and ends with braces
+                        if not clean_content.startswith('{'):
+                            clean_content = '{' + clean_content
+                        if not clean_content.endswith('}'):
+                            clean_content = clean_content + '}'
+                            
+                        fixed_parsed = json.loads(clean_content)
+                        logging.warning(f"JSON was fixed with defensive parsing: {clean_content}")
+                        return JSONResponse(content=fixed_parsed)
+                    except json.JSONDecodeError:
+                        # If we're on the last retry, return the error
+                        if retry_count == max_retries:
+                            return JSONResponse(
+                                content={
+                                    "error": error_msg,
+                                    "raw_content": content
+                                },
+                                status_code=500
+                            )
+                        # Otherwise, increment retry counter and try again
+                        retry_count += 1
+                        continue
+                    
+            except Exception as e:
+                last_exception = e
+                # If we're on the last retry, raise the exception
+                if retry_count == max_retries:
+                    raise
+                # Otherwise, increment retry counter and try again
+                retry_count += 1
+                logging.warning(f"Retry {retry_count}/{max_retries} after error: {str(e)}")
+                continue
+                
+        # We should never get here, but just in case
+        return JSONResponse(
+            content={"error": f"Failed after {max_retries} retries. Last error: {str(last_exception)}"},
+            status_code=500
         )
-        # Log full raw response for debugging
-        logging.info(f"Full OpenAI response: {response}")
-
-        content = response.choices[0].message.content.strip()
-        logging.info(f"OpenAI response content: {content}")
-
-        # Validate JSON response
-        try:
-            parsed = json.loads(content)
-        except json.JSONDecodeError:
-            logging.error("Failed to parse JSON from OpenAI response")
-            return JSONResponse(content={"error": "Failed to parse JSON from OpenAI response"}, status_code=500)
-
-        return JSONResponse(content=parsed)
     except Exception as e:
         logging.error(f"Exception in /parse endpoint: {e}")
         return JSONResponse(content={"error": str(e)}, status_code=500)
@@ -564,53 +639,81 @@ async def run_smart_control_from_text(text):
     user_prompt = f"Request: {text}"
     
     # Call OpenAI API
-    response = client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt}
-        ],
-        temperature=1
-    )
-    
-    # Extract and parse response
-    content = response.choices[0].message.content.strip()
-    
     try:
-        parsed_data = json.loads(content)
-        print("Parsed command data:")
-        print(json.dumps(parsed_data, indent=2))
+        # Use response_format to ensure we get valid JSON
+        response = client.chat.completions.create(
+            model="o4-mini-2025-04-16",  # Pinned to specific snapshot for consistency
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ],
+            response_format={"type": "json_object"},  # Explicitly request JSON output
+            temperature=0.7,  # Lower temperature for more predictable responses
+            timeout=15  # Explicit timeout for cloud environments
+        )
         
-        # Handle the intent
-        intent = parsed_data.get("intent")
-        if intent == "set_color":
-            result = await handle_set_color(parsed_data)
-            print("Result of set_color operation:")
-            print(result.body.decode())
-            return result
-        elif intent == "trigger_scene":
-            result = handle_trigger_scene(parsed_data)
-            print("Result of trigger_scene operation:")
-            print(result.body.decode())
-            return result
-        elif intent == "trigger_ifttt":
-            result = await handle_ifttt_trigger(parsed_data)
-            print("Result of trigger_ifttt operation:")
-            print(result)
-            return result
-        elif intent == "lg_tv_control":
-            result = await handle_lg_tv_control(parsed_data)
-            print("Result of lg_tv_control operation:")
-            print(result)
-            return result
-        else:
-            print(f"Unknown intent: {intent}")
-            return JSONResponse(content={"error": "Unknown intent"}, status_code=400)
+        # Check if we have a valid response with content
+        if not response.choices or len(response.choices) == 0:
+            error_msg = "OpenAI API returned empty choices"
+            print(f"Error: {error_msg}")
+            return JSONResponse(content={"error": error_msg, "raw_response": str(response)}, status_code=500)
             
-    except json.JSONDecodeError:
-        print("Failed to parse JSON from OpenAI response")
-        print(f"Raw response: {content}")
-        return JSONResponse(content={"error": "Failed to parse JSON from OpenAI response"}, status_code=500)
+        # Check if message exists and has content
+        message = response.choices[0].message
+        if not hasattr(message, 'content') or message.content is None:
+            error_msg = "OpenAI API response missing content field"
+            print(f"Error: {error_msg}")
+            return JSONResponse(content={"error": error_msg, "raw_response": str(response)}, status_code=500)
+            
+        content = message.content.strip()
+        
+        if not content:
+            error_msg = "OpenAI API returned empty content"
+            print(f"Error: {error_msg}")
+            return JSONResponse(content={"error": error_msg, "raw_response": str(response)}, status_code=500)
+        
+        # Extract and parse response
+        try:
+            parsed_data = json.loads(content)
+            print("Parsed command data:")
+            print(json.dumps(parsed_data, indent=2))
+            
+            # Handle the intent
+            intent = parsed_data.get("intent")
+            if intent == "set_color":
+                result = await handle_set_color(parsed_data)
+                print("Result of set_color operation:")
+                print(result.body.decode())
+                return result
+            elif intent == "trigger_scene":
+                result = handle_trigger_scene(parsed_data)
+                print("Result of trigger_scene operation:")
+                print(result.body.decode())
+                return result
+            elif intent == "trigger_ifttt":
+                result = await handle_ifttt_trigger(parsed_data)
+                print("Result of trigger_ifttt operation:")
+                print(result)
+                return result
+            elif intent == "lg_tv_control":
+                result = await handle_lg_tv_control(parsed_data)
+                print("Result of lg_tv_control operation:")
+                print(result)
+                return result
+            else:
+                print(f"Unknown intent: {intent}")
+                return JSONResponse(content={"error": "Unknown intent"}, status_code=400)
+        except json.JSONDecodeError as json_err:
+            error_msg = f"Failed to parse JSON from OpenAI response: {str(json_err)}"
+            print(f"Error: {error_msg}")
+            print(f"Raw response: {content}")
+            return JSONResponse(
+                content={
+                    "error": error_msg,
+                    "raw_content": content
+                },
+                status_code=500
+            )
     except Exception as e:
         print(f"Error processing command: {str(e)}")
         return JSONResponse(content={"error": str(e)}, status_code=500)
