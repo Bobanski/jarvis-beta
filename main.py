@@ -5,7 +5,7 @@ import os
 from dotenv import load_dotenv
 
 # Test command for simulating smart control flow
-test_command = "Turn on the TV"
+test_command = "Turn on the AC"
 
 # System prompt context for lighting moods and scenes
 SYSTEM_PROMPT_CONTEXT = """
@@ -470,8 +470,10 @@ import json
 
 @app.post("/parse")
 async def parse(request: Request):
+    import logging
     try:
         data = await request.json()
+        logging.info(f"Received /parse request data: {data}")
         text = data.get("text")
         if not text:
             return JSONResponse(content={"error": "Missing 'text' field"}, status_code=400)
@@ -505,15 +507,18 @@ async def parse(request: Request):
             temperature=1
         )
         content = response.choices[0].message.content.strip()
+        logging.info(f"OpenAI response content: {content}")
 
         # Validate JSON response
         try:
             parsed = json.loads(content)
         except json.JSONDecodeError:
+            logging.error("Failed to parse JSON from OpenAI response")
             return JSONResponse(content={"error": "Failed to parse JSON from OpenAI response"}, status_code=500)
 
         return JSONResponse(content=parsed)
     except Exception as e:
+        logging.error(f"Exception in /parse endpoint: {e}")
         return JSONResponse(content={"error": str(e)}, status_code=500)
 
 
