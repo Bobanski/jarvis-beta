@@ -513,7 +513,7 @@ async def parse(request: Request):
                         {"role": "user", "content": user_prompt}
                     ],
                     response_format={"type": "json_object"},  # Explicitly request JSON output
-                    temperature=0.7,  # Lower temperature for more predictable responses
+                    temperature=1,  # Lower temperature for more predictable responses
                     timeout=15  # Explicit timeout for cloud environments
                 )
                 
@@ -648,7 +648,7 @@ async def run_smart_control_from_text(text):
                 {"role": "user", "content": user_prompt}
             ],
             response_format={"type": "json_object"},  # Explicitly request JSON output
-            temperature=0.7,  # Lower temperature for more predictable responses
+            temperature=1,  # Lower temperature for more predictable responses
             timeout=15  # Explicit timeout for cloud environments
         )
         
