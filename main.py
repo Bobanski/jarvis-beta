@@ -499,7 +499,7 @@ async def parse(request: Request):
         user_prompt = f"Request: {text}"
 
         response = client.chat.completions.create(
-            model="o4-mini",
+            model="gpt-4o-mini",
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt}
@@ -562,7 +562,7 @@ async def run_smart_control_from_text(text):
     
     # Call OpenAI API
     response = client.chat.completions.create(
-        model="o4-mini",
+        model="gpt-4o-mini",
         messages=[
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt}
