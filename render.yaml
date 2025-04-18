@@ -1,0 +1,21 @@
+services:
+  - type: web
+    name: jarvis-api
+    env: python
+    plan: free
+
+    # Install dependencies
+    buildCommand: pip install -r requirements.txt
+
+    # Start FastAPI with uvicorn on port 10000
+    startCommand: uvicorn main:app --host 0.0.0.0 --port 10000
+
+    envVars:
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: HUE_BRIDGE_IP
+        sync: false
+      - key: HUE_USERNAME
+        sync: false
+      - key: IFTTT_KEY
+        sync: false
