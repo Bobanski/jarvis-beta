@@ -495,6 +495,7 @@ async def parse(request: Request):
             "If it describes a color (e.g., 'warm orange', 'deep blue'), set intent to 'set_color' and include "
             "'location', 'hue' (0-360), 'sat' (0-254), and 'bri' (0-254) fields. "
             "Always normalize scene names to lowercase."
+            + "\n\n" + SYSTEM_PROMPT_CONTEXT
         )
         user_prompt = f"Request: {text}"
 
