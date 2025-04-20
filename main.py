@@ -762,7 +762,11 @@ async def execute_command(request: Request):
             if isinstance(parsed_data, bytes):
                 parsed_data = json.loads(parsed_data.decode())
             
-            # Now execute the command based on the intent
+            # Now execute the command based on the intent.
+            let_intent = parsed_data.get("intent")
+            if not let_intent or (isinstance(let_intent, str) and let_intent.strip() == ""):
+                if parsed_data.get("device") and parsed_data.get("command"):
+                    parsed_data["intent"] = "trigger_ifttt"
             intent = parsed_data.get("intent")
             if intent == "set_color":
                 return await handle_set_color(parsed_data)
