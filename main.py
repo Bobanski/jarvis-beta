@@ -7,7 +7,7 @@ import asyncio
 from dotenv import load_dotenv
 
 # Test command for simulating smart control flow
-test_command = "Turn on the AC"
+test_command = "Turn on the TV"
 
 # System prompt context for lighting moods and scenes
 SYSTEM_PROMPT_CONTEXT = """
