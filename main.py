@@ -26,6 +26,7 @@ If the user wants to control the air conditioning (turn on/off AC), set intent: 
 If the user wants to open the curtains, set intent: "trigger_ifttt", device: "curtains", and command: "open".
 If the user wants to control the LG TV directly, set intent: "lg_tv_control" and include "command" field with the action.
 If the user wants to change room lighting, fallback to existing set_color or trigger_scene logic.
+For IFTTT commands, ensure that the output JSON contains exactly the keys "device" and "command", with "command" being either "on" or "off".
 """
 
 load_dotenv()
@@ -136,8 +137,8 @@ async def handle_ifttt_trigger(data):
     device = data.get("device")
     command = data.get("command", "on").lower()
 
-    if device not in ("tv", "ac", "curtains"):
-        return JSONResponse(content={"error": "Unsupported device for trigger_ifttt"}, status_code=400)
+    if not device or device not in ("tv", "ac", "curtains"):
+        return JSONResponse(content={"error": "Missing or unsupported 'device'. Please include a valid device in your command (e.g., 'TV', 'AC', or 'curtains')."}, status_code=400)
 
     if device in ("tv", "ac"):
         if command not in ("on", "off"):
@@ -487,13 +488,15 @@ async def parse(request: Request):
             "You are a smart home controller. "
             "Interpret the user's natural language request and extract structured information. "
             "Return the output as a JSON object. "
-            "Determine if the request matches a known lighting scene OR describes a color. "
+            "Determine if the request matches a known lighting scene, a device control command, or describes a color. "
             "If it matches a scene name, set intent to 'trigger_scene' "
             "and include 'scene_name' and 'location' fields. "
             f"scene_name must be one of: {scene_name_options}. "
             f"location must be one of: {location_options}. "
+            "If it is a command to control devices via IFTTT (e.g., 'Turn on the AC'), set intent to 'trigger_ifttt' and include 'device' and 'command' fields, where 'command' is either 'on' or 'off'. "
             "If it describes a color (e.g., 'warm orange', 'deep blue'), set intent to 'set_color' and include "
             "'location', 'hue' (0-360), 'sat' (0-254), and 'bri' (0-254) fields. "
+            "If it is a command to control devices via IFTTT (e.g., 'Turn on the AC'), set intent to 'trigger_ifttt' and include 'device' and 'command' fields, where 'command' is either 'on' or 'off'. "
             "Always normalize scene names to lowercase."
             + "\n\n" + SYSTEM_PROMPT_CONTEXT
         )
@@ -735,7 +738,11 @@ async def execute_command(request: Request):
             return JSONResponse(content={"error": "Missing 'text' field"}, status_code=400)
         
         # First parse the text
-        parse_response = await parse(Request(scope={"type": "http"}, receive=request.receive))
+        body_bytes = await request.body()
+        async def new_receive():
+            return {"type": "http.request", "body": body_bytes}
+        new_req = Request(request.scope, new_receive)
+        parse_response = await parse(new_req)
         
         # Check if parsing was successful
         if isinstance(parse_response, JSONResponse):
@@ -758,7 +765,7 @@ async def execute_command(request: Request):
             elif intent == "lg_tv_control":
                 return await handle_lg_tv_control(parsed_data)
             else:
-                return JSONResponse(content={"error": "Unknown intent", "parsed_data": parsed_data}, status_code=400)
+                return JSONResponse(content={"error": "Unknown intent. Ensure the command specifies a valid intent (e.g., 'set_color', 'trigger_scene', 'trigger_ifttt', or 'lg_tv_control'). If you intended to trigger IFTTT, also include a valid 'device' and 'command'.", "parsed_data": parsed_data}, status_code=400)
         else:
             return JSONResponse(content={"error": "Failed to parse command"}, status_code=500)
     except Exception as e:
