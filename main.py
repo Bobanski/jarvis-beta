@@ -1,7 +1,8 @@
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, BackgroundTasks
 from fastapi.responses import JSONResponse
 import requests
 import os
+import httpx
 from dotenv import load_dotenv
 
 # Test command for simulating smart control flow
@@ -158,11 +159,18 @@ async def handle_ifttt_trigger(data):
     payload = {"value1": command}
 
     try:
-        response = requests.post(ifttt_url, json=payload, timeout=5)
+        asyncio.create_task(send_ifttt_request(ifttt_url, payload))
+        return {"status": "success", "message": f"{device.upper()} command '{command}' queued to IFTTT."}
+    except Exception as e:
+        return JSONResponse(content={"error": f"Failed to queue IFTTT webhook: {str(e)}"}, status_code=500)
+
+async def send_ifttt_request(ifttt_url, payload):
+    try:
+        async with httpx.AsyncClient(timeout=5) as client:
+            response = await client.post(ifttt_url, json=payload)
         response.raise_for_status()
-        return {"status": "success", "message": f"{device.upper()} command '{command}' sent to IFTTT."}
-    except requests.RequestException as e:
-        return JSONResponse(content={"error": f"Failed to send IFTTT webhook: {str(e)}"}, status_code=500)
+    except httpx.RequestError as e:
+        print(f"Error sending IFTTT webhook: {str(e)}")
 
 async def handle_lg_tv_control(data):
     """

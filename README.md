@@ -83,10 +83,4 @@ Converts natural language requests into structured actions using OpenAI's o4-min
 
 
 
-
-POST http://<192.168.1.4>/api
-Body:
-{
-  "devicetype": "jarvis-beta#local",
-  "generateclientkey": true
-}
+curl -s -X POST https://jarvis-beta.onrender.com/execute -H "Content-Type: application/json" -d '{"text": "Turn on the AC"}'
